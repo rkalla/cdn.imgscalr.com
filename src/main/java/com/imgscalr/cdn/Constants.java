@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import com.amazonaws.auth.PropertiesCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
-import com.imgscalr.cdn.task.S3DownloadTask;
+import com.imgscalr.cdn.task.OriginPullTask;
 
 public class Constants {
 	private static final Logger L = LoggerFactory.getLogger(Constants.class);
@@ -40,7 +40,7 @@ public class Constants {
 
 		try {
 			S3_CLIENT = new AmazonS3Client(new PropertiesCredentials(
-					S3DownloadTask.class
+					OriginPullTask.class
 							.getResourceAsStream("/aws-s3.properties")));
 		} catch (Exception e) {
 			String message = "Failed to init AmazonS3Client object using '/aws-s3.properties' file.";

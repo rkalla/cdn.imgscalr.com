@@ -3,9 +3,8 @@ package com.imgscalr.cdn.task;
 import static com.imgscalr.cdn.Constants.CDN_BUCKET;
 import static com.imgscalr.cdn.Constants.S3_CLIENT;
 import static com.imgscalr.cdn.util.IOUtil.copy;
-import static javax.servlet.http.HttpServletResponse.*;
-
-import java.util.concurrent.Callable;
+import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,24 +15,24 @@ import com.amazonaws.services.s3.model.S3ObjectInputStream;
 import com.imgscalr.cdn.CDNServletRequest;
 import com.imgscalr.cdn.CDNServletResponse;
 
-public class S3DownloadTask implements Callable<Void> {
+public class OriginPullTask implements Runnable {
 	private static final Logger L = LoggerFactory
-			.getLogger(S3DownloadTask.class);
+			.getLogger(OriginPullTask.class);
 
 	private CDNServletRequest cReq;
 
-	public S3DownloadTask(CDNServletRequest cReq) {
+	public OriginPullTask(CDNServletRequest cReq) {
 		this.cReq = cReq;
 	}
 
 	@Override
-	public Void call() throws CDNServletResponse {
+	public void run() {
 		long sTime = System.currentTimeMillis();
 		GetObjectRequest request = new GetObjectRequest(CDN_BUCKET,
 				cReq.distroName + '/' + cReq.fileName);
 
 		L.info("{}-Begin[cReq={}, startTime={}]",
-				S3DownloadTask.class.getName(), cReq, sTime);
+				OriginPullTask.class.getName(), cReq, sTime);
 
 		try {
 			/*
@@ -51,7 +50,7 @@ public class S3DownloadTask implements Callable<Void> {
 				int size = copy(in, cReq.tmpFile);
 
 				L.info("{}-End[elapsedTime={} ms, size={} bytes]",
-						S3DownloadTask.class.getName(),
+						OriginPullTask.class.getName(),
 						(System.currentTimeMillis() - sTime), size);
 			} catch (Exception e) {
 				throw new CDNServletResponse(SC_INTERNAL_SERVER_ERROR,
@@ -64,7 +63,5 @@ public class S3DownloadTask implements Callable<Void> {
 					+ cReq.fileName + "' does not exist in distribution '"
 					+ cReq.distroName + "'");
 		}
-
-		return null;
 	}
 }

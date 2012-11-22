@@ -20,7 +20,8 @@ import javax.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.imgscalr.cdn.task.S3DownloadTask;
+import com.imgscalr.cdn.task.OriginPullTask;
+import com.imgscalr.cdn.task.RequestCleanupTask;
 
 public class CDNServlet extends HttpServlet {
 	private static Logger L = LoggerFactory.getLogger(CDNServlet.class);
@@ -86,16 +87,7 @@ public class CDNServlet extends HttpServlet {
 			 */
 			if (!cReq.cached) {
 				res.setHeader("imgscalr-cache", "miss");
-
-				try {
-					EXEC_SERVICE.submit(new S3DownloadTask(cReq)).get();
-				} catch (InterruptedException | ExecutionException e) {
-					if (e.getCause() instanceof CDNServletResponse)
-						throw (CDNServletResponse) e.getCause();
-					else
-						throw new CDNServletResponse(SC_INTERNAL_SERVER_ERROR,
-								"Server was unable to initiate an origin-pull for this request.");
-				}
+				EXEC_SERVICE.execute(new OriginPullTask(cReq));
 			} else
 				res.setHeader("imgscalr-cache", "hit");
 
@@ -123,12 +115,9 @@ public class CDNServlet extends HttpServlet {
 				 * found in S3; we don't want to create a temp file locally for
 				 * a file that doesn't exist in the origin.
 				 */
-				if (cRes.cReq != null && cRes.cReq.tmpFile.exists())
-					cRes.cReq.tmpFile.delete();
-				
-				// TODO: The above does not work, need to implement a cleanup routine (maybe an async task)
-				// that requests fire to clean themselves up.
+				EXEC_SERVICE.execute(new RequestCleanupTask(cRes.cReq));
 
+				// Render error.
 				res.sendError(cRes.httpCode, cRes.message);
 			}
 		} finally {

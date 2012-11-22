@@ -80,9 +80,6 @@ public class CDNServlet extends HttpServlet {
 			// Parse request into usable data, detecting any errors.
 			CDNServletRequest cReq = new CDNServletRequest(req);
 
-			// TODO: remove
-			System.out.println(cReq);
-
 			/*
 			 * Initiate the origin-pull if the image isn't locally cached
 			 * already, otherwise stream back the local file immediately.
@@ -99,24 +96,26 @@ public class CDNServlet extends HttpServlet {
 			} else
 				res.setHeader("imgscalr-cache", "hit");
 
-			// Setup the remainder of the headers.
-			res.setStatus(SC_OK);
-			res.setHeader("imgscalr-elapsedTime",
-					Long.toString(System.currentTimeMillis() - sTime));
-			res.setContentType(cReq.mimeType);
-			res.setContentLength((int) cReq.tmpFile.length());
-
-			// Stream file contents back to client.
-			copy(cReq.tmpFile, res.getOutputStream());
-			
-			// TODO : need to add a throw CDNResponse here
+			// Done processing image request, ready to render.
+			throw new CDNServletResponse(cReq);
 		} catch (CDNServletResponse cRes) {
-			// TODO: Need to actually implement the rendering back to the client here
-			// based on the SC code, like sending an error back or file back.
-			L.info("{}-End[elapsedTime={} ms, httpCode={}, message={}]",
+			L.info("{}-End[elapsedTime={} ms, httpCode={}, message={}, cReq={}]",
 					CDNServlet.class.getName(),
 					(System.currentTimeMillis() - sTime), cRes.httpCode,
-					cRes.message);
+					cRes.message, cRes.cReq);
+
+			if (cRes.httpCode == SC_OK) {
+				// Set the remainder of headers.
+				res.setStatus(SC_OK);
+				res.setHeader("imgscalr-elapsedTime",
+						Long.toString(System.currentTimeMillis() - sTime));
+				res.setContentType(cRes.cReq.mimeType);
+				res.setContentLength((int) cRes.cReq.tmpFile.length());
+
+				// Stream file contents back to client.
+				copy(cRes.cReq.tmpFile, res.getOutputStream());
+			} else
+				res.sendError(cRes.httpCode, cRes.message);
 		} finally {
 			try {
 				// Safely close the client OutputStream.

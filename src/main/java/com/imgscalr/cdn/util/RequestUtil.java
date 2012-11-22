@@ -36,7 +36,7 @@ public class RequestUtil {
 					int eIdx = requestURI.indexOf('.', sIdx);
 
 					// Ensure there is a file extension.
-					if (eIdx > -1) {
+					if (eIdx > -1 && eIdx < requestURI.length() - 1) {
 						// Only create the result now we confirmed all exists.
 						result = new String[2];
 
@@ -44,7 +44,7 @@ public class RequestUtil {
 						result[0] = requestURI.substring(sIdx, eIdx);
 						// Parse the remainder of the file name as the
 						// extension.
-						result[1] = requestURI.substring(eIdx,
+						result[1] = requestURI.substring(eIdx + 1,
 								requestURI.length());
 					}
 				}

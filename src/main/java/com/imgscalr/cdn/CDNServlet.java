@@ -108,8 +108,12 @@ public class CDNServlet extends HttpServlet {
 
 			// Stream file contents back to client.
 			copy(cReq.tmpFile, res.getOutputStream());
+			
+			// TODO : need to add a throw CDNResponse here
 		} catch (CDNServletResponse cRes) {
-			L.info("{}-End[elapsedTime={}, httpCode={}, message={}]",
+			// TODO: Need to actually implement the rendering back to the client here
+			// based on the SC code, like sending an error back or file back.
+			L.info("{}-End[elapsedTime={} ms, httpCode={}, message={}]",
 					CDNServlet.class.getName(),
 					(System.currentTimeMillis() - sTime), cRes.httpCode,
 					cRes.message);

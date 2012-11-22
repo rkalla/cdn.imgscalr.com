@@ -90,8 +90,11 @@ public class CDNServlet extends HttpServlet {
 				try {
 					EXEC_SERVICE.submit(new S3DownloadTask(cReq)).get();
 				} catch (InterruptedException | ExecutionException e) {
-					throw new CDNServletResponse(SC_INTERNAL_SERVER_ERROR,
-							"Server was unable to initiate an asynchronous origin-pull for this request.");
+					if (e.getCause() instanceof CDNServletResponse)
+						throw (CDNServletResponse) e.getCause();
+					else
+						throw new CDNServletResponse(SC_INTERNAL_SERVER_ERROR,
+								"Server was unable to initiate an origin-pull for this request.");
 				}
 			} else
 				res.setHeader("imgscalr-cache", "hit");
@@ -114,8 +117,20 @@ public class CDNServlet extends HttpServlet {
 
 				// Stream file contents back to client.
 				copy(cRes.cReq.tmpFile, res.getOutputStream());
-			} else
+			} else {
+				/*
+				 * Cleanup any temp files we created incase the request was not
+				 * found in S3; we don't want to create a temp file locally for
+				 * a file that doesn't exist in the origin.
+				 */
+				if (cRes.cReq != null && cRes.cReq.tmpFile.exists())
+					cRes.cReq.tmpFile.delete();
+				
+				// TODO: The above does not work, need to implement a cleanup routine (maybe an async task)
+				// that requests fire to clean themselves up.
+
 				res.sendError(cRes.httpCode, cRes.message);
+			}
 		} finally {
 			try {
 				// Safely close the client OutputStream.

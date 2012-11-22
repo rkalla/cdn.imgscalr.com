@@ -3,8 +3,7 @@ package com.imgscalr.cdn.task;
 import static com.imgscalr.cdn.Constants.CDN_BUCKET;
 import static com.imgscalr.cdn.Constants.S3_CLIENT;
 import static com.imgscalr.cdn.util.IOUtil.copy;
-import static javax.servlet.http.HttpServletResponse.SC_BAD_REQUEST;
-import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+import static javax.servlet.http.HttpServletResponse.*;
 
 import java.util.concurrent.Callable;
 
@@ -61,10 +60,9 @@ public class S3DownloadTask implements Callable<Void> {
 								+ "' from the distribution origin.");
 			}
 		} catch (Exception e) {
-			throw new CDNServletResponse(SC_BAD_REQUEST, "Requested file '"
-					+ cReq.fileName
-					+ "' does not exist in specified distribution '"
-					+ cReq.distroName + "'.");
+			throw new CDNServletResponse(SC_NOT_FOUND, "Requested file '"
+					+ cReq.fileName + "' does not exist in distribution '"
+					+ cReq.distroName + "'");
 		}
 
 		return null;

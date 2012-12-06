@@ -1,0 +1,6 @@
+Introduce a logging util that abstracts out the different types of logging
+messages like info, error, performance and offers the ability to async queue up
+and write out performance metrics to a remote DB for later analysis.
+
+NOTE: Should I do that or implement a custom logback logger that does the work and
+just utilize TRACE types to track performance? That would be more robust.

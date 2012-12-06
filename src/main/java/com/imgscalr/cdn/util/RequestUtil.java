@@ -9,7 +9,7 @@ public class RequestUtil {
 		if (req != null) {
 			String serverName = req.getServerName();
 
-			if (serverName != null && serverName.length() > 0) {
+			if (serverName != null && !serverName.isEmpty()) {
 				int i = serverName.indexOf('.');
 
 				if (i > -1)

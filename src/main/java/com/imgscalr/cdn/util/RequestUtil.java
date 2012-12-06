@@ -3,11 +3,11 @@ package com.imgscalr.cdn.util;
 import javax.servlet.http.HttpServletRequest;
 
 public class RequestUtil {
-	public static String parseDistroName(HttpServletRequest req) {
+	public static String parseDistroName(HttpServletRequest request) {
 		String result = null;
 
-		if (req != null) {
-			String serverName = req.getServerName();
+		if (request != null) {
+			String serverName = request.getServerName();
 
 			if (serverName != null && !serverName.isEmpty()) {
 				int i = serverName.indexOf('.');
@@ -20,11 +20,11 @@ public class RequestUtil {
 		return result;
 	}
 
-	public static String[] parseFileName(HttpServletRequest req) {
+	public static String[] parseFileName(HttpServletRequest request) {
 		String result[] = null;
 
-		if (req != null) {
-			String requestURI = req.getRequestURI();
+		if (request != null) {
+			String requestURI = request.getRequestURI();
 
 			if (requestURI != null && requestURI.length() > 0) {
 				// Find last path file separator to start from.

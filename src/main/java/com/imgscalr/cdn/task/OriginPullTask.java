@@ -1,7 +1,8 @@
 package com.imgscalr.cdn.task;
 
 import static com.imgscalr.cdn.Constants.ORIGIN_HREF;
-import static javax.servlet.http.HttpServletResponse.*;
+import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,37 +13,36 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 
 import com.imgscalr.cdn.CDNResponse;
 
 public class OriginPullTask implements Callable<CDNResponse> {
 	private Path targetFile;
-	private String mimeType;
 
 	private String distroName;
 	private String originPath;
 
-	public OriginPullTask(Path targetFile, String mimeType, String distroName,
-			String originPath) {
-		System.out.println("OPull [targetFile=" + targetFile + ", mimeType="
-				+ mimeType + ", distroName=" + distroName + ", originPath="
-				+ originPath + "]");
+	public OriginPullTask(Path targetFile, String distroName, String originPath) {
+		System.out.println("OPull [targetFile=" + targetFile + ", distroName="
+				+ distroName + ", originPath=" + originPath + "]");
 
 		this.targetFile = targetFile;
-		this.mimeType = mimeType;
 		this.distroName = distroName;
 		this.originPath = originPath;
 	}
 
-	/*
-	 * TODO: Does it make sense for this method to return anything? It is just
-	 * writing to the target file that was passed in. Maybe a boolean to
-	 * indicate success or failure? It should probably throw a flow-control
-	 * exception if the image doesn't exist or something or maybe it should
-	 * return the exception from the call with the correct HTTP status and
-	 * message?
+	/**
+	 * Executes the origin-pull of the image from the S3 repository. Returns an
+	 * {@link CDNResponse} instance ONLY if there was an error during processing
+	 * so a more meaningful exception can be sent back to the client (instead of
+	 * trying to handle the {@link ExecutionException} on the caller's side and
+	 * pull out the real cause.
+	 * 
+	 * If the origin pull is successful then <code>null</code> is returned so
+	 * the caller can continue processing the image before sending back to the
+	 * caller.
 	 */
-
 	@Override
 	public CDNResponse call() throws Exception {
 		System.out.println("Attemping to download [" + ORIGIN_HREF + originPath
@@ -81,8 +81,6 @@ public class OriginPullTask implements Callable<CDNResponse> {
 				fc.close();
 				bc.close();
 				originStream.close();
-
-				response = new CDNResponse(targetFile, mimeType);
 			} catch (Exception e) {
 				response = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"A server error occurred while trying to origin-pull the requested image '"

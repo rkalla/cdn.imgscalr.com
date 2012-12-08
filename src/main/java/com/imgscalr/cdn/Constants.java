@@ -25,7 +25,7 @@ public class Constants {
 	 * It also allows us to avoid the setup cost of HTTPS connection allow the
 	 * origin pulls to be as fast as possible.
 	 */
-	public static final String ORIGIN_HREF = "http://cdn.imgscalr.com.s3.amazonaws.com";
+	public static final String ORIGIN_HREF = "http://cdn.imgscalr.com.s3.amazonaws.com/";
 
 	public static final Path TMP_DIR = Paths.get(System
 			.getProperty("java.io.tmpdir"));

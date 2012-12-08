@@ -27,7 +27,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import com.imgscalr.cdn.task.OriginPull;
+import com.imgscalr.cdn.task.OriginPullTask;
 
 public class CDNServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
@@ -50,7 +50,7 @@ public class CDNServlet extends HttpServlet {
 		try {
 			checkMethod(request, response);
 			processRequest(request, response);
-		} catch (CDNResponseException ex) {
+		} catch (CDNResponse ex) {
 			try {
 				// Render the response according to the HTTP status code.
 				switch (ex.httpCode) {
@@ -97,16 +97,15 @@ public class CDNServlet extends HttpServlet {
 	}
 
 	private static void checkMethod(HttpServletRequest request,
-			HttpServletResponse response) throws IOException,
-			CDNResponseException {
+			HttpServletResponse response) throws IOException, CDNResponse {
 		if (!"GET".equals(request.getMethod()))
-			throw new CDNResponseException(SC_METHOD_NOT_ALLOWED,
-					"HTTP Method '" + request.getMethod()
-							+ "' is not supported by this service.");
+			throw new CDNResponse(SC_METHOD_NOT_ALLOWED, "HTTP Method '"
+					+ request.getMethod()
+					+ "' is not supported by this service.");
 	}
 
 	private static void processRequest(HttpServletRequest request,
-			HttpServletResponse response) throws CDNResponseException {
+			HttpServletResponse response) throws CDNResponse {
 		/*
 		 * DISTRO NAME
 		 */
@@ -116,7 +115,7 @@ public class CDNServlet extends HttpServlet {
 		if (idx > -1)
 			distroName = request.getServerName().substring(0, idx);
 		else
-			throw new CDNResponseException(
+			throw new CDNResponse(
 					SC_BAD_REQUEST,
 					"Request is missing a valid distro name, e.g. http://<distro_name>.cdn.imgscalr.com/...");
 
@@ -132,7 +131,7 @@ public class CDNServlet extends HttpServlet {
 			try {
 				encodedQueryString = URLEncoder.encode(queryString, "UTF-8");
 			} catch (UnsupportedEncodingException ex) {
-				throw new CDNResponseException(SC_BAD_REQUEST,
+				throw new CDNResponse(SC_BAD_REQUEST,
 						"Server is unable to process the provided Query String: '"
 								+ queryString + "'");
 			}
@@ -144,13 +143,13 @@ public class CDNServlet extends HttpServlet {
 		final String pathInfo = request.getPathInfo();
 
 		if (pathInfo == null || pathInfo.isEmpty())
-			throw new CDNResponseException(SC_BAD_REQUEST,
+			throw new CDNResponse(SC_BAD_REQUEST,
 					"Request is missing a valid file name reference.");
 
 		final int extIdx = pathInfo.lastIndexOf('.');
 
 		if (extIdx == -1 || extIdx + 1 == pathInfo.length())
-			throw new CDNResponseException(SC_BAD_REQUEST,
+			throw new CDNResponse(SC_BAD_REQUEST,
 					"Request is missing a valid, complete file name reference: '"
 							+ pathInfo + "'");
 
@@ -174,9 +173,9 @@ public class CDNServlet extends HttpServlet {
 		// Render immediately if cached processed image already exists.
 		if (Files.exists(cachedProcImage)) {
 			if (Files.isReadable(cachedProcImage))
-				throw new CDNResponseException(cachedProcImage, mimeType);
+				throw new CDNResponse(cachedProcImage, mimeType);
 			else
-				throw new CDNResponseException(SC_INTERNAL_SERVER_ERROR,
+				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
 		}
 
@@ -185,9 +184,9 @@ public class CDNServlet extends HttpServlet {
 			Path image = processImage(cachedOrigImage, queryString);
 
 			if (Files.isReadable(image))
-				throw new CDNResponseException(image, mimeType);
+				throw new CDNResponse(image, mimeType);
 			else
-				throw new CDNResponseException(SC_INTERNAL_SERVER_ERROR,
+				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
 		}
 
@@ -211,21 +210,38 @@ public class CDNServlet extends HttpServlet {
 		 * flow-control and a special exception thrown to exit the service
 		 * method cleanly.
 		 */
+		CDNResponse pullResponse = null;
+
 		try {
-			EXEC_SERVICE.submit(new OriginPull(cachedOrigImage, pathInfo)).get();
-		} catch (Exception e) {
-			System.err.println("ORIGIN PULL PROBLEM!");
-			e.printStackTrace();
+			pullResponse = EXEC_SERVICE.submit(
+					new OriginPullTask(cachedOrigImage, distroName, pathInfo))
+					.get();
+		} catch (InterruptedException | ExecutionException e) {
+			pullResponse = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
+					"A server error occurred while performing the origin-pull operation.");
 		}
-		
+
+		/*
+		 * If the pullResponse is not null, that means a more detailed failure
+		 * happened during the OriginPullTask (e.g. like the image not existing)
+		 * or a more low-level system exception occurred that caused the
+		 * operation to abort or fail; either way it is a internal server error
+		 * back to the client and we need to throw it.
+		 * 
+		 * If there is no response, then the operation succeeded and we can
+		 * process the image.
+		 */
+		if (pullResponse != null)
+			throw pullResponse;
+
 		// TODO: Now we can process and stream result.
 	}
 
 	private static Path processImage(Path origImage, String queryString)
-			throws CDNResponseException {
-		if(queryString == null || queryString.isEmpty())
+			throws CDNResponse {
+		if (queryString == null || queryString.isEmpty())
 			return origImage;
-		
+
 		// TODO: impl
 		return null;
 	}

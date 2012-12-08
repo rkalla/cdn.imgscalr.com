@@ -1,13 +1,18 @@
 package com.imgscalr.cdn;
 
 import static com.imgscalr.cdn.Constants.*;
+import static com.imgscalr.cdn.util.FileUtil.*;
 import static javax.servlet.http.HttpServletResponse.*;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
@@ -39,6 +44,27 @@ public class NewCDNServlet extends HttpServlet {
 				// Render the response according to the HTTP status code.
 				switch (ex.httpCode) {
 				case 200:
+					response.setStatus(SC_OK);
+					response.setContentType(ex.mimeType);
+
+					int size = (int) Files.size(ex.image);
+					response.setContentLength(size);
+
+					WritableByteChannel bc = Channels.newChannel(response
+							.getOutputStream());
+					FileChannel fc = FileChannel.open(ex.image, StandardOpenOption.READ);
+					
+					/* 
+					 * Let the OS stream the image back to the client in the most
+					 * optimized way possible (transferTo) -- also let any exceptions
+					 * bubble up to the outside catch as it likely symbolizes the
+					 * client broke the connection before it finished.
+					 */
+					fc.transferTo(0, size, bc);
+					
+					// Cleanup
+					fc.close();
+					bc.close();
 					break;
 
 				default:
@@ -130,11 +156,12 @@ public class NewCDNServlet extends HttpServlet {
 				+ (encodedQueryString == null ? "" : "-" + encodedQueryString)
 				+ '.' + fileExt);
 		final Path cachedOrigImage = TMP_DIR.resolve(pathInfo);
+		final String mimeType = determineMimeType(cachedOrigImage);
 
 		// Render immediately if cached processed image already exists.
 		if (Files.exists(cachedProcImage)) {
 			if (Files.isReadable(cachedProcImage))
-				throw new CDNResponseException(cachedProcImage);
+				throw new CDNResponseException(cachedProcImage, mimeType);
 			else
 				throw new CDNResponseException(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
@@ -142,16 +169,25 @@ public class NewCDNServlet extends HttpServlet {
 
 		// Process then render if the original is available.
 		if (Files.exists(cachedOrigImage)) {
-			Path image = processImage(cachedOrigImage);
+			Path image = processImage(cachedOrigImage, queryString);
 
 			if (Files.isReadable(image))
-				throw new CDNResponseException(image);
+				throw new CDNResponseException(image, mimeType);
 			else
 				throw new CDNResponseException(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
-		} else {
-			// Download, then process, then render.
 		}
+
+		/*
+		 * If we got this far then it means the cached copy wasn't on the
+		 * server, the original wasn't on the server either and we need to do an
+		 * origin-pull.
+		 * 
+		 * One optimization we can make here is if we are doing an origin pull
+		 * AND the request is for the original image, we can stream it through
+		 * directly from S3 back to the client and not write it to disk until
+		 * after -- ??? will this require dual-writing-stream-buffer?
+		 */
 
 		/*
 		 * TODO: This is a cascading operation that reaches out farther and
@@ -160,7 +196,7 @@ public class NewCDNServlet extends HttpServlet {
 		 */
 	}
 
-	private static Path processImage(Path origImage)
+	private static Path processImage(Path origImage, String queryString)
 			throws CDNResponseException {
 		// TODO: impl
 		return null;

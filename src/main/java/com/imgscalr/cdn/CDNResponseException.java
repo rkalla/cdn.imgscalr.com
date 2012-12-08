@@ -10,17 +10,20 @@ public class CDNResponseException extends RuntimeException {
 	public final int httpCode;
 	public final String message;
 	public final Path image;
+	public final String mimeType;
 
 	public CDNResponseException(int httpCode, String message) {
 		this.httpCode = httpCode;
 		this.message = message;
 		this.image = null;
+		this.mimeType = null;
 	}
 
-	public CDNResponseException(Path image) {
+	public CDNResponseException(Path image, String mimeType) {
 		this.httpCode = HttpServletResponse.SC_OK;
 		this.message = null;
 		this.image = image;
+		this.mimeType = mimeType;
 	}
 
 	/**

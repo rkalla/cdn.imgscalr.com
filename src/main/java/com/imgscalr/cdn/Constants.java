@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,8 +16,16 @@ import com.imgscalr.cdn.task.OriginPullTask;
 
 public class Constants {
 	private static final Logger L = LoggerFactory.getLogger(Constants.class);
-
-	public static final String CDN_BUCKET = "cdn.imgscalr.com";
+	
+	/**
+	 * All internal origin-pulls are done over HTTP because the home AWS network
+	 * is considered safe for inter-network communication (especially for file
+	 * transfers).
+	 * 
+	 * It also allows us to avoid the setup cost of HTTPS connection allow the
+	 * origin pulls to be as fast as possible.
+	 */
+	public static final String ORIGIN_HREF = "http://cdn.imgscalr.com.s3.amazonaws.com";
 
 	public static final Path TMP_DIR = Paths.get(System
 			.getProperty("java.io.tmpdir"));

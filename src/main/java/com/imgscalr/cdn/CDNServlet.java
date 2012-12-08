@@ -13,7 +13,13 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 
+import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
@@ -21,8 +27,13 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import com.imgscalr.cdn.task.OriginPull;
+
 public class CDNServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
+
+	private static final ExecutorService EXEC_SERVICE = Executors
+			.newCachedThreadPool();
 
 	@Override
 	public void service(final ServletRequest sRequest,
@@ -52,16 +63,18 @@ public class CDNServlet extends HttpServlet {
 
 					WritableByteChannel bc = Channels.newChannel(response
 							.getOutputStream());
-					FileChannel fc = FileChannel.open(ex.image, StandardOpenOption.READ);
-					
-					/* 
-					 * Let the OS stream the image back to the client in the most
-					 * optimized way possible (transferTo) -- also let any exceptions
-					 * bubble up to the outside catch as it likely symbolizes the
-					 * client broke the connection before it finished.
+					FileChannel fc = FileChannel.open(ex.image,
+							StandardOpenOption.READ);
+
+					/*
+					 * Let the OS stream the image back to the client in the
+					 * most optimized way possible (transferTo) -- also let any
+					 * exceptions bubble up to the outside catch as it likely
+					 * symbolizes the client broke the connection before it
+					 * finished.
 					 */
 					fc.transferTo(0, size, bc);
-					
+
 					// Cleanup
 					fc.close();
 					bc.close();
@@ -183,21 +196,36 @@ public class CDNServlet extends HttpServlet {
 		 * server, the original wasn't on the server either and we need to do an
 		 * origin-pull.
 		 * 
-		 * One optimization we can make here is if we are doing an origin pull
-		 * AND the request is for the original image, we can stream it through
-		 * directly from S3 back to the client and not write it to disk until
-		 * after -- ??? will this require dual-writing-stream-buffer?
+		 * One potential optimization that we COULD have made here is to
+		 * implement a dual-write buffering output stream that pulls from the
+		 * origin and writes to both a local file AND the output stream back to
+		 * the client at the same time.
+		 * 
+		 * This was decided against for the time being because it is not clear
+		 * how much performance this will buy us in response time AND would
+		 * require circumvention of the entire exception-based-flow-control
+		 * design of this class.
+		 * 
+		 * If it is decided at a later time that this optimization IS worth it,
+		 * then it can all be implemented down here independently of the
+		 * flow-control and a special exception thrown to exit the service
+		 * method cleanly.
 		 */
-
-		/*
-		 * TODO: This is a cascading operation that reaches out farther and
-		 * farther if needed. This should be designed in a fluid way, maybe
-		 * calling out to a separate method?
-		 */
+		try {
+			EXEC_SERVICE.submit(new OriginPull(cachedOrigImage, pathInfo)).get();
+		} catch (Exception e) {
+			System.err.println("ORIGIN PULL PROBLEM!");
+			e.printStackTrace();
+		}
+		
+		// TODO: Now we can process and stream result.
 	}
 
 	private static Path processImage(Path origImage, String queryString)
 			throws CDNResponseException {
+		if(queryString == null || queryString.isEmpty())
+			return origImage;
+		
 		// TODO: impl
 		return null;
 	}

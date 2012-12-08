@@ -1,10 +1,10 @@
 package com.imgscalr.cdn;
 
+import static javax.servlet.http.HttpServletResponse.SC_OK;
+
 import java.nio.file.Path;
 
-import javax.servlet.http.HttpServletResponse;
-
-public class CDNResponseException extends RuntimeException {
+public class CDNResponse extends RuntimeException {
 	private static final long serialVersionUID = 1L;
 
 	public final int httpCode;
@@ -12,18 +12,27 @@ public class CDNResponseException extends RuntimeException {
 	public final Path image;
 	public final String mimeType;
 
-	public CDNResponseException(int httpCode, String message) {
+	public CDNResponse(int httpCode, String message) {
 		this.httpCode = httpCode;
 		this.message = message;
 		this.image = null;
 		this.mimeType = null;
 	}
 
-	public CDNResponseException(Path image, String mimeType) {
-		this.httpCode = HttpServletResponse.SC_OK;
+	public CDNResponse(Path image, String mimeType) {
+		this.httpCode = SC_OK;
 		this.message = null;
 		this.image = image;
 		this.mimeType = mimeType;
+	}
+
+	@Override
+	public String toString() {
+		return CDNResponse.class.getName()
+				+ '['
+				+ (httpCode == SC_OK ? "image=" + image + ", mimeType="
+						+ mimeType : "httpCode=" + httpCode + ", message='"
+						+ message + "'") + ']';
 	}
 
 	/**

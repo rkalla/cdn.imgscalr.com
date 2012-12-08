@@ -15,14 +15,14 @@ import java.util.concurrent.Callable;
 
 import com.imgscalr.cdn.CDNResponse;
 
-public class OriginPull implements Callable<CDNResponse> {
+public class OriginPullTask implements Callable<CDNResponse> {
 	private Path targetFile;
 	private String mimeType;
 
 	private String distroName;
 	private String originPath;
 
-	public OriginPull(Path targetFile, String mimeType, String distroName,
+	public OriginPullTask(Path targetFile, String mimeType, String distroName,
 			String originPath) {
 		System.out.println("OPull [targetFile=" + targetFile + ", mimeType="
 				+ mimeType + ", distroName=" + distroName + ", originPath="

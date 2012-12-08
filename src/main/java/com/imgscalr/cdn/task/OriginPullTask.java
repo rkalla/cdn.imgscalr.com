@@ -2,7 +2,6 @@ package com.imgscalr.cdn.task;
 
 import static com.imgscalr.cdn.Constants.CDN_BUCKET;
 import static com.imgscalr.cdn.Constants.S3_CLIENT;
-import static com.imgscalr.cdn.util.IOUtil.copy;
 import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
 import static javax.servlet.http.HttpServletResponse.SC_NOT_FOUND;
 
@@ -12,16 +11,16 @@ import org.slf4j.LoggerFactory;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
 import com.amazonaws.services.s3.model.S3ObjectInputStream;
-import com.imgscalr.cdn.CDNServletRequest;
-import com.imgscalr.cdn.CDNServletResponse;
+import com.imgscalr.cdn.CDNRequest;
+import com.imgscalr.cdn.CDNResponse;
 
 public class OriginPullTask implements Runnable {
 	private static final Logger L = LoggerFactory
 			.getLogger(OriginPullTask.class);
 
-	private CDNServletRequest cReq;
+	private CDNRequest cReq;
 
-	public OriginPullTask(CDNServletRequest cReq) {
+	public OriginPullTask(CDNRequest cReq) {
 		this.cReq = cReq;
 	}
 
@@ -47,19 +46,19 @@ public class OriginPullTask implements Runnable {
 				 * Safely copy stream contents to local file that we already
 				 * vetted to make sure we could create it and write to it.
 				 */
-				int size = copy(in, cReq.tmpFile);
+				// int size = copy(in, cReq.tmpFile);
 
-				L.info("{}-End[elapsedTime={} ms, size={} bytes]",
-						OriginPullTask.class.getName(),
-						(System.currentTimeMillis() - sTime), size);
+				// L.info("{}-End[elapsedTime={} ms, size={} bytes]",
+				// OriginPullTask.class.getName(),
+				// (System.currentTimeMillis() - sTime), size);
 			} catch (Exception e) {
-				throw new CDNServletResponse(SC_INTERNAL_SERVER_ERROR,
+				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"Server was unable to retrieve the requested image '"
 								+ cReq.fileName
 								+ "' from the distribution origin.");
 			}
 		} catch (Exception e) {
-			throw new CDNServletResponse(SC_NOT_FOUND, "Requested file '"
+			throw new CDNResponse(SC_NOT_FOUND, "Requested file '"
 					+ cReq.fileName + "' does not exist in distribution '"
 					+ cReq.distroName + "'");
 		}

@@ -15,17 +15,23 @@ import java.nio.file.StandardOpenOption;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.imgscalr.cdn.CDNResponse;
 
 public class OriginPullTask implements Callable<CDNResponse> {
+	private static final Logger L = LoggerFactory
+			.getLogger(OriginPullTask.class);
+
 	private Path targetFile;
 
 	private String distroName;
 	private String originPath;
 
 	public OriginPullTask(Path targetFile, String distroName, String originPath) {
-		System.out.println("OPull [targetFile=" + targetFile + ", distroName="
-				+ distroName + ", originPath=" + originPath + "]");
+		L.debug("targetFile={}\tdistroName={}\toriginPath={}", targetFile,
+				distroName, originPath);
 
 		this.targetFile = targetFile;
 		this.distroName = distroName;
@@ -45,16 +51,18 @@ public class OriginPullTask implements Callable<CDNResponse> {
 	 */
 	@Override
 	public CDNResponse call() throws Exception {
-		System.out.println("Attemping to download [" + ORIGIN_HREF + originPath
-				+ "]");
+		long sTime = System.currentTimeMillis();
+		String downloadURL = ORIGIN_HREF + distroName + originPath;
+		L.debug("downloadURL={}", downloadURL);
 
 		CDNResponse response = null;
 		InputStream originStream = null;
-		URL originURL = new URL(ORIGIN_HREF + distroName + originPath);
+		URL originURL = new URL(downloadURL);
 
 		try {
 			originStream = originURL.openStream();
 		} catch (IOException e) {
+			e.printStackTrace();
 			response = new CDNResponse(SC_NOT_FOUND, "Requested image '"
 					+ originPath + "' does not exist in the '" + distroName
 					+ "' distribution.");
@@ -75,13 +83,20 @@ public class OriginPullTask implements Callable<CDNResponse> {
 				 * Very efficient transfer directly from the open HTTP
 				 * connection to the file we have open for writing.
 				 */
-				fc.transferFrom(fc, 0, Integer.MAX_VALUE);
+				long size = fc.transferFrom(bc, 0, Integer.MAX_VALUE);
 
 				// Cleanup.
 				fc.close();
 				bc.close();
 				originStream.close();
+
+				// Calculate rate
+				long eTime = System.currentTimeMillis() - sTime;
+				double bpms = (double) size / (double) eTime;
+				L.trace("Origin Pull Complete [bytes={}, time(ms)={}, rate(KB/sec)={}]",
+						size, eTime, (float) (bpms * 1000));
 			} catch (Exception e) {
+				e.printStackTrace();
 				response = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"A server error occurred while trying to origin-pull the requested image '"
 								+ originPath + "' from the '" + distroName

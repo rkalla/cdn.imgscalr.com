@@ -1,8 +1,11 @@
 package com.imgscalr.cdn;
 
-import static com.imgscalr.cdn.Constants.*;
-import static com.imgscalr.cdn.util.FileUtil.*;
-import static javax.servlet.http.HttpServletResponse.*;
+import static com.imgscalr.cdn.Constants.TMP_DIR;
+import static com.imgscalr.cdn.util.FileUtil.determineMimeType;
+import static javax.servlet.http.HttpServletResponse.SC_BAD_REQUEST;
+import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
+import static javax.servlet.http.HttpServletResponse.SC_METHOD_NOT_ALLOWED;
+import static javax.servlet.http.HttpServletResponse.SC_OK;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -12,14 +15,12 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
 
-import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
@@ -27,11 +28,14 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.imgscalr.cdn.task.OriginPullTask;
 
 public class CDNServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
-
+	private static final Logger L = LoggerFactory.getLogger(CDNServlet.class);
 	private static final ExecutorService EXEC_SERVICE = Executors
 			.newCachedThreadPool();
 
@@ -44,14 +48,29 @@ public class CDNServlet extends HttpServlet {
 		if (!(sResponse instanceof HttpServletResponse))
 			throw new ServletException("non-HTTP response");
 
+		long sTime = System.currentTimeMillis();
 		final HttpServletRequest request = (HttpServletRequest) sRequest;
 		final HttpServletResponse response = (HttpServletResponse) sResponse;
 
 		try {
-			checkMethod(request, response);
+			// Verify HTTP method.
+			if (!"GET".equals(request.getMethod()))
+				throw new CDNResponse(SC_METHOD_NOT_ALLOWED, "HTTP Method '"
+						+ request.getMethod()
+						+ "' is not supported by this service.");
+
+			L.debug("HTTP GET Start [serverName={}, pathInfo={}, queryString='{}']",
+					request.getServerName(), request.getPathInfo(),
+					request.getQueryString());
+
+			// Continue processing the request.
 			processRequest(request, response);
 		} catch (CDNResponse ex) {
 			try {
+				L.debug("Response Complete [time(ms)={}, response={}]",
+						(System.currentTimeMillis() - sTime), ex);
+				sTime = System.currentTimeMillis();
+
 				// Render the response according to the HTTP status code.
 				switch (ex.httpCode) {
 				case 200:
@@ -78,30 +97,34 @@ public class CDNServlet extends HttpServlet {
 					// Cleanup
 					fc.close();
 					bc.close();
+
+					// Calculate rate
+					long eTime = System.currentTimeMillis() - sTime;
+					double bpms = (double) size / (double) eTime;
+					L.trace("Client Send Complete [bytes={}, time(ms)={}, rate(KB/sec)={}]",
+							size, eTime, (float) (bpms * 1000));
 					break;
 
 				default:
 					response.sendError(ex.httpCode, ex.message);
 					break;
 				}
-
-				// Response was rendered, flush buffer and complete response.
-				response.flushBuffer();
 			} catch (Exception e) {
 				// Client aborted connection, do nothing.
 			}
-		} catch (IOException ex) {
-			// Client aborted connection, do nothing.
 		}
 
-	}
+		/*
+		 * Whether success or failure, try and close out response stream
+		 * successfully
+		 */
+		try {
+			response.flushBuffer();
+		} catch (Exception e) {
+			// no-op, likely client aborted connection.
+		}
 
-	private static void checkMethod(HttpServletRequest request,
-			HttpServletResponse response) throws IOException, CDNResponse {
-		if (!"GET".equals(request.getMethod()))
-			throw new CDNResponse(SC_METHOD_NOT_ALLOWED, "HTTP Method '"
-					+ request.getMethod()
-					+ "' is not supported by this service.");
+		L.debug("HTTP GET End");
 	}
 
 	private static void processRequest(HttpServletRequest request,
@@ -119,6 +142,8 @@ public class CDNServlet extends HttpServlet {
 					SC_BAD_REQUEST,
 					"Request is missing a valid distro name, e.g. http://<distro_name>.cdn.imgscalr.com/...");
 
+		L.debug("distroName='{}'", distroName);
+
 		/*
 		 * QUERY STRING
 		 */
@@ -130,6 +155,8 @@ public class CDNServlet extends HttpServlet {
 		else {
 			try {
 				encodedQueryString = URLEncoder.encode(queryString, "UTF-8");
+				L.debug("queryString='{}'\tencodedQueryString='{}'",
+						encodedQueryString);
 			} catch (UnsupportedEncodingException ex) {
 				throw new CDNResponse(SC_BAD_REQUEST,
 						"Server is unable to process the provided Query String: '"
@@ -156,6 +183,9 @@ public class CDNServlet extends HttpServlet {
 		final String fileStem = pathInfo.substring(0, extIdx);
 		final String fileExt = pathInfo.substring(extIdx + 1);
 
+		L.debug("pathInfo='{}'\tfileStem='{}'\tfileExt='{}'", pathInfo,
+				fileStem, fileExt);
+
 		/*
 		 * Create references to the two different types of files we will have on
 		 * this server: the fully processed result which includes the encoded
@@ -164,11 +194,14 @@ public class CDNServlet extends HttpServlet {
 		 * same file if there is no query string provided (just a raw image
 		 * reference).
 		 */
-		final Path cachedProcImage = TMP_DIR.resolve(fileStem
+		final Path cachedProcImage = Paths.get(TMP_DIR.toString(), fileStem
 				+ (encodedQueryString == null ? "" : "-" + encodedQueryString)
 				+ '.' + fileExt);
-		final Path cachedOrigImage = TMP_DIR.resolve(pathInfo);
+		final Path cachedOrigImage = Paths.get(TMP_DIR.toString(), pathInfo);
 		final String mimeType = determineMimeType(cachedOrigImage);
+
+		L.debug("originalImage={}\tprocessedImage={}\tmimeType={}",
+				cachedOrigImage, cachedProcImage, mimeType);
 
 		// Render immediately if cached processed image already exists.
 		if (Files.exists(cachedProcImage)) {
@@ -179,8 +212,11 @@ public class CDNServlet extends HttpServlet {
 						"Server is unable to read the image from the local filesystem.");
 		}
 
+		L.trace("processedImage not available, checking for originalImage...");
+
 		// Process then render if the original is available.
 		if (Files.exists(cachedOrigImage)) {
+			L.trace("originalImage found!");
 			Path image = processImage(cachedOrigImage, queryString);
 
 			if (Files.isReadable(image))
@@ -188,7 +224,8 @@ public class CDNServlet extends HttpServlet {
 			else
 				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
-		}
+		} else
+			L.trace("originalImage NOT found, beginning origin pull...");
 
 		/*
 		 * If we got this far then it means the cached copy wasn't on the
@@ -213,10 +250,14 @@ public class CDNServlet extends HttpServlet {
 		CDNResponse pullResponse = null;
 
 		try {
+			long sTime = System.currentTimeMillis();
 			pullResponse = EXEC_SERVICE.submit(
 					new OriginPullTask(cachedOrigImage, distroName, pathInfo))
 					.get();
+			L.trace("Origin pull completed in {} ms",
+					(System.currentTimeMillis() - sTime));
 		} catch (InterruptedException | ExecutionException e) {
+			e.printStackTrace();
 			pullResponse = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 					"A server error occurred while performing the origin-pull operation.");
 		}
@@ -237,12 +278,14 @@ public class CDNServlet extends HttpServlet {
 		// TODO: Now we can process and stream result.
 	}
 
-	private static Path processImage(Path origImage, String queryString)
+	private static Path processImage(Path image, String queryString)
 			throws CDNResponse {
-		if (queryString == null || queryString.isEmpty())
-			return origImage;
+		L.debug("processImage [image={}, queryString={}]", image, queryString);
 
-		// TODO: impl
-		return null;
+		if (queryString == null || queryString.isEmpty())
+			return image;
+
+		// TODO: impl TEMP
+		return image;
 	}
 }

@@ -30,9 +30,9 @@ public class CDNResponse extends RuntimeException {
 	public String toString() {
 		return CDNResponse.class.getName()
 				+ '['
-				+ (httpCode == SC_OK ? "image=" + image + ", mimeType="
-						+ mimeType : "httpCode=" + httpCode + ", message='"
-						+ message + "'") + ']';
+				+ (httpCode == SC_OK ? "httpCode=200, image=" + image
+						+ ", mimeType=" + mimeType : "httpCode=" + httpCode
+						+ ", message='" + message + "'") + ']';
 	}
 
 	/**

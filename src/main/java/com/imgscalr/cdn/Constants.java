@@ -1,6 +1,5 @@
 package com.imgscalr.cdn;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
@@ -16,8 +15,8 @@ public class Constants {
 	 */
 	public static final String ORIGIN_HREF = "http://cdn.imgscalr.com.s3.amazonaws.com/";
 
-	public static final Path TMP_DIR = Paths.get(System
-			.getProperty("java.io.tmpdir"));
+	public static final String TMP_DIR = Paths.get(
+			System.getProperty("java.io.tmpdir")).toString();
 
 	public static final Map<String, String> MIME_MAP = new HashMap<String, String>(
 			31);

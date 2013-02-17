@@ -44,9 +44,11 @@ public class CDNServlet extends HttpServlet {
 			final ServletResponse sResponse) throws ServletException,
 			IOException {
 		if (!(sRequest instanceof HttpServletRequest))
-			throw new ServletException("non-HTTP request");
+			throw new ServletException(
+					"Non-HTTP request received; this service only supports HTTP-based operations.");
 		if (!(sResponse instanceof HttpServletResponse))
-			throw new ServletException("non-HTTP response");
+			throw new ServletException(
+					"Non-HTTP response received; this service only supports HTTP-based operations.");
 
 		long sTime = System.currentTimeMillis();
 		final HttpServletRequest request = (HttpServletRequest) sRequest;
@@ -129,98 +131,39 @@ public class CDNServlet extends HttpServlet {
 
 	private static void processRequest(HttpServletRequest request,
 			HttpServletResponse response) throws CDNResponse {
-		/*
-		 * DISTRO NAME
-		 */
-		final String distroName;
-		final int idx = request.getServerName().indexOf('.');
-
-		if (idx > -1)
-			distroName = request.getServerName().substring(0, idx);
-		else
-			throw new CDNResponse(
-					SC_BAD_REQUEST,
-					"Request is missing a valid distro name, e.g. http://<distro_name>.cdn.imgscalr.com/...");
-
-		L.debug("distroName='{}'", distroName);
+		CDNRequest cdnRequest = new CDNRequest(request);
+		L.debug("CDN Request Created: {}", cdnRequest);
 
 		/*
-		 * QUERY STRING
+		 * TODO: Use CDNRequest to try and render processed image first, then
+		 * original after processed then origin pull if needed.
 		 */
-		final String queryString = request.getQueryString();
-		final String encodedQueryString;
 
-		if (queryString == null || queryString.isEmpty())
-			encodedQueryString = null;
-		else {
-			try {
-				encodedQueryString = URLEncoder.encode(queryString, "UTF-8");
-				L.debug("queryString='{}'\tencodedQueryString='{}'",
-						encodedQueryString);
-			} catch (UnsupportedEncodingException ex) {
-				throw new CDNResponse(SC_BAD_REQUEST,
-						"Server is unable to process the provided Query String: '"
-								+ queryString + "'");
-			}
-		}
-
-		/*
-		 * FILE NAME
-		 */
-		final String pathInfo = request.getPathInfo();
-
-		if (pathInfo == null || pathInfo.isEmpty())
-			throw new CDNResponse(SC_BAD_REQUEST,
-					"Request is missing a valid file name reference.");
-
-		final int extIdx = pathInfo.lastIndexOf('.');
-
-		if (extIdx == -1 || extIdx + 1 == pathInfo.length())
-			throw new CDNResponse(SC_BAD_REQUEST,
-					"Request is missing a valid, complete file name reference: '"
-							+ pathInfo + "'");
-
-		final String fileStem = pathInfo.substring(0, extIdx);
-		final String fileExt = pathInfo.substring(extIdx + 1);
-
-		L.debug("pathInfo='{}'\tfileStem='{}'\tfileExt='{}'", pathInfo,
-				fileStem, fileExt);
-
-		/*
-		 * Create references to the two different types of files we will have on
-		 * this server: the fully processed result which includes the encoded
-		 * query string OR the original unprocessed one from S3 that we can
-		 * process here locally for a new result. It is possible these are the
-		 * same file if there is no query string provided (just a raw image
-		 * reference).
-		 */
-		final Path cachedProcImage = Paths.get(TMP_DIR.toString(), fileStem
-				+ (encodedQueryString == null ? "" : "-" + encodedQueryString)
-				+ '.' + fileExt);
-		final Path cachedOrigImage = Paths.get(TMP_DIR.toString(), pathInfo);
-		final String mimeType = determineMimeType(cachedOrigImage);
-
-		L.debug("originalImage={}\tprocessedImage={}\tmimeType={}",
-				cachedOrigImage, cachedProcImage, mimeType);
-
-		// Render immediately if cached processed image already exists.
-		if (Files.exists(cachedProcImage)) {
-			if (Files.isReadable(cachedProcImage))
-				throw new CDNResponse(cachedProcImage, mimeType);
+		// Render immediately if processed image already exists.
+		if (Files.exists(processedImage)) {
+			if (Files.isReadable(processedImage))
+				throw new CDNResponse(processedImage, mimeType);
 			else
 				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
 		}
 
-		L.trace("processedImage not available, checking for originalImage...");
+		L.trace("processedImage not found, checking for originalImage...");
 
 		// Process then render if the original is available.
-		if (Files.exists(cachedOrigImage)) {
-			L.trace("originalImage found!");
-			Path image = processImage(cachedOrigImage, queryString);
+		if (Files.exists(originalImage)) {
+			L.trace("\toriginalImage found, created processedImage...");
+			createProcessedImage(originalImage, queryString, processedImage);
 
-			if (Files.isReadable(image))
-				throw new CDNResponse(image, mimeType);
+			/*
+			 * Once the originalImage is processed, the processedImage path
+			 * reference will point at the location of the resulting image. In
+			 * the case where there was no query string, then originalImage and
+			 * processedImage point at the same time and the call to
+			 * createProcessedImage is a no-op (immediate return).
+			 */
+			if (Files.isReadable(processedImage))
+				throw new CDNResponse(processedImage, mimeType);
 			else
 				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
 						"Server is unable to read the image from the local filesystem.");
@@ -228,34 +171,16 @@ public class CDNServlet extends HttpServlet {
 			L.trace("originalImage NOT found, beginning origin pull...");
 
 		/*
-		 * If we got this far then it means the cached copy wasn't on the
-		 * server, the original wasn't on the server either and we need to do an
-		 * origin-pull.
-		 * 
-		 * One potential optimization that we COULD have made here is to
-		 * implement a dual-write buffering output stream that pulls from the
-		 * origin and writes to both a local file AND the output stream back to
-		 * the client at the same time.
-		 * 
-		 * This was decided against for the time being because it is not clear
-		 * how much performance this will buy us in response time AND would
-		 * require circumvention of the entire exception-based-flow-control
-		 * design of this class.
-		 * 
-		 * If it is decided at a later time that this optimization IS worth it,
-		 * then it can all be implemented down here independently of the
-		 * flow-control and a special exception thrown to exit the service
-		 * method cleanly.
+		 * If we got this far then it means that we weren't able to find the the
+		 * fully processed version of the image OR the original already on the
+		 * server, which means we need to perform an origin-pull to get it.
 		 */
 		CDNResponse pullResponse = null;
 
 		try {
-			long sTime = System.currentTimeMillis();
 			pullResponse = EXEC_SERVICE.submit(
-					new OriginPullTask(cachedOrigImage, distroName, pathInfo))
+					new OriginPullTask(originalImage, distroName, pathInfo))
 					.get();
-			L.trace("Origin pull completed in {} ms",
-					(System.currentTimeMillis() - sTime));
 		} catch (InterruptedException | ExecutionException e) {
 			e.printStackTrace();
 			pullResponse = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
@@ -275,17 +200,40 @@ public class CDNServlet extends HttpServlet {
 		if (pullResponse != null)
 			throw pullResponse;
 
-		// TODO: Now we can process and stream result.
+		L.trace("Origin pull completed without error, processing image...");
+
+		createProcessedImage(originalImage, queryString, processedImage);
+
+		if (Files.isReadable(processedImage))
+			throw new CDNResponse(processedImage, mimeType);
+		else
+			throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
+					"Server is unable to read the image from the local filesystem.");
 	}
 
-	private static Path processImage(Path image, String queryString)
-			throws CDNResponse {
-		L.debug("processImage [image={}, queryString={}]", image, queryString);
+	private static void createProcessedImage(Path originalImage,
+			String queryString, Path processedImage) throws CDNResponse {
+		L.debug("processImage [originalImage={}, queryString={}]",
+				originalImage, queryString);
 
+		/*
+		 * Do nothing and return immediately if there is no query string; then
+		 * originalImage and processedImage point at the same file.
+		 */
 		if (queryString == null || queryString.isEmpty())
-			return image;
+			return;
 
-		// TODO: impl TEMP
-		return image;
+		// TODO: Implement original -> processed image processing (parsing the
+		// query string).
+	}
+
+	private static String tryProcessedImageResponse(String fileStem,
+			String fileExt, String encodedQueryString) throws CDNResponse {
+
+	}
+
+	private static String tryOriginalImageResponse(String fileStem,
+			String fileExt, String encodedQueryString) throws CDNResponse {
+
 	}
 }

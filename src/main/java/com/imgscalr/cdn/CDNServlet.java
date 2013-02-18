@@ -1,21 +1,15 @@
 package com.imgscalr.cdn;
 
-import static com.imgscalr.cdn.Constants.TMP_DIR;
-import static com.imgscalr.cdn.util.FileUtil.determineMimeType;
-import static javax.servlet.http.HttpServletResponse.SC_BAD_REQUEST;
 import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
 import static javax.servlet.http.HttpServletResponse.SC_METHOD_NOT_ALLOWED;
 import static javax.servlet.http.HttpServletResponse.SC_OK;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -66,7 +60,7 @@ public class CDNServlet extends HttpServlet {
 					request.getQueryString());
 
 			// Continue processing the request.
-			processRequest(request, response);
+			processRequest(request);
 		} catch (CDNResponse ex) {
 			try {
 				L.debug("Response Complete [time(ms)={}, response={}]",
@@ -129,86 +123,67 @@ public class CDNServlet extends HttpServlet {
 		L.debug("HTTP GET End");
 	}
 
-	private static void processRequest(HttpServletRequest request,
-			HttpServletResponse response) throws CDNResponse {
-		CDNRequest cdnRequest = new CDNRequest(request);
-		L.debug("CDN Request Created: {}", cdnRequest);
+	private static void processRequest(HttpServletRequest servletRequest)
+			throws CDNResponse {
+		CDNRequest request = new CDNRequest(servletRequest);
+		L.debug("CDN Request: {}", request);
 
 		/*
-		 * TODO: Use CDNRequest to try and render processed image first, then
-		 * original after processed then origin pull if needed.
+		 * If there is no processedImage and no originalImage, then we need an
+		 * origin-pull. This is the worst-case scenario.
 		 */
+		if (!Files.exists(request.processedImage)
+				&& !Files.exists(request.originalImage)) {
+			L.trace("originalImage and processedImage do not exist, initiating an origin-pull...");
+			CDNResponse pullResponse = null;
 
-		// Render immediately if processed image already exists.
-		if (Files.exists(processedImage)) {
-			if (Files.isReadable(processedImage))
-				throw new CDNResponse(processedImage, mimeType);
-			else
-				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
-						"Server is unable to read the image from the local filesystem.");
-		}
-
-		L.trace("processedImage not found, checking for originalImage...");
-
-		// Process then render if the original is available.
-		if (Files.exists(originalImage)) {
-			L.trace("\toriginalImage found, created processedImage...");
-			createProcessedImage(originalImage, queryString, processedImage);
+			try {
+				pullResponse = EXEC_SERVICE.submit(
+						new OriginPullTask(request.originalImage,
+								request.distroName, request.fileName)).get();
+			} catch (InterruptedException | ExecutionException e) {
+				e.printStackTrace();
+				pullResponse = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
+						"A server error occurred while performing the origin-pull operation.");
+			}
 
 			/*
-			 * Once the originalImage is processed, the processedImage path
-			 * reference will point at the location of the resulting image. In
-			 * the case where there was no query string, then originalImage and
-			 * processedImage point at the same time and the call to
-			 * createProcessedImage is a no-op (immediate return).
+			 * If the pullResponse is not null, that means a more detailed
+			 * failure happened during the OriginPullTask (e.g. like the image
+			 * not existing) or a more low-level system exception occurred that
+			 * caused the operation to abort or fail; either way it is a
+			 * internal server error back to the client and we need to throw it.
+			 * 
+			 * If there is no response, then the operation succeeded and we can
+			 * process the image.
 			 */
-			if (Files.isReadable(processedImage))
-				throw new CDNResponse(processedImage, mimeType);
-			else
-				throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
-						"Server is unable to read the image from the local filesystem.");
-		} else
-			L.trace("originalImage NOT found, beginning origin pull...");
-
-		/*
-		 * If we got this far then it means that we weren't able to find the the
-		 * fully processed version of the image OR the original already on the
-		 * server, which means we need to perform an origin-pull to get it.
-		 */
-		CDNResponse pullResponse = null;
-
-		try {
-			pullResponse = EXEC_SERVICE.submit(
-					new OriginPullTask(originalImage, distroName, pathInfo))
-					.get();
-		} catch (InterruptedException | ExecutionException e) {
-			e.printStackTrace();
-			pullResponse = new CDNResponse(SC_INTERNAL_SERVER_ERROR,
-					"A server error occurred while performing the origin-pull operation.");
+			if (pullResponse != null)
+				throw pullResponse;
 		}
 
 		/*
-		 * If the pullResponse is not null, that means a more detailed failure
-		 * happened during the OriginPullTask (e.g. like the image not existing)
-		 * or a more low-level system exception occurred that caused the
-		 * operation to abort or fail; either way it is a internal server error
-		 * back to the client and we need to throw it.
-		 * 
-		 * If there is no response, then the operation succeeded and we can
-		 * process the image.
+		 * If there is no processedImage, then we need to process the
+		 * originalImage to get on. The previous condition guarantees that the
+		 * originalImage will exist by this point (either by already existing on
+		 * the server, or we just origin-pulled it).
 		 */
-		if (pullResponse != null)
-			throw pullResponse;
+		if (!Files.exists(request.processedImage)) {
+			L.trace("processedImage does not exist, creating it...");
+			createProcessedImage(request.originalImage, request.queryString,
+					request.processedImage);
+		}
 
-		L.trace("Origin pull completed without error, processing image...");
-
-		createProcessedImage(originalImage, queryString, processedImage);
-
-		if (Files.isReadable(processedImage))
-			throw new CDNResponse(processedImage, mimeType);
+		/*
+		 * At this point, whether we had to origin-pull the image or process the
+		 * original, we are guaranteed to have a processedImage that is ready to
+		 * render.
+		 */
+		if (Files.isReadable(request.processedImage))
+			throw new CDNResponse(request.processedImage, request.mimeType);
 		else
-			throw new CDNResponse(SC_INTERNAL_SERVER_ERROR,
-					"Server is unable to read the image from the local filesystem.");
+			throw new CDNResponse(
+					SC_INTERNAL_SERVER_ERROR,
+					"Server is unable to read the image from the local filesystem and render it to the client.");
 	}
 
 	private static void createProcessedImage(Path originalImage,
@@ -225,15 +200,5 @@ public class CDNServlet extends HttpServlet {
 
 		// TODO: Implement original -> processed image processing (parsing the
 		// query string).
-	}
-
-	private static String tryProcessedImageResponse(String fileStem,
-			String fileExt, String encodedQueryString) throws CDNResponse {
-
-	}
-
-	private static String tryOriginalImageResponse(String fileStem,
-			String fileExt, String encodedQueryString) throws CDNResponse {
-
 	}
 }

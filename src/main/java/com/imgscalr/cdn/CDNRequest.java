@@ -105,8 +105,8 @@ public class CDNRequest {
 	@Override
 	public String toString() {
 		return CDNRequest.class.getName() + "[distroName=" + distroName
-				+ ", queryString='" + queryString + "', fileName=" + fileName
-				+ ", originalImage=" + originalImage + ", processedImage="
-				+ processedImage + "]";
+				+ ", queryString='" + (queryString == null ? "" : queryString)
+				+ "', fileName=" + fileName + ", originalImage="
+				+ originalImage + ", processedImage=" + processedImage + "]";
 	}
 }

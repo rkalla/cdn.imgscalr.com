@@ -30,9 +30,6 @@ public class OriginPullTask implements Callable<CDNResponse> {
 	private String originPath;
 
 	public OriginPullTask(Path targetFile, String distroName, String originPath) {
-		L.debug("targetFile={}\tdistroName={}\toriginPath={}", targetFile,
-				distroName, originPath);
-
 		this.targetFile = targetFile;
 		this.distroName = distroName;
 		this.originPath = originPath;
@@ -53,7 +50,8 @@ public class OriginPullTask implements Callable<CDNResponse> {
 	public CDNResponse call() throws Exception {
 		long sTime = System.currentTimeMillis();
 		String downloadURL = ORIGIN_HREF + distroName + originPath;
-		L.debug("downloadURL={}", downloadURL);
+		L.trace("Attempting to download [{}] to local file [{}]...",
+				downloadURL, targetFile);
 
 		CDNResponse response = null;
 		InputStream originStream = null;
@@ -62,7 +60,7 @@ public class OriginPullTask implements Callable<CDNResponse> {
 		try {
 			originStream = originURL.openStream();
 		} catch (IOException e) {
-			e.printStackTrace();
+			L.trace("\tRequested file ({}) does not exist.", downloadURL);
 			response = new CDNResponse(SC_NOT_FOUND, "Requested image '"
 					+ originPath + "' does not exist in the '" + distroName
 					+ "' distribution.");
@@ -93,7 +91,7 @@ public class OriginPullTask implements Callable<CDNResponse> {
 				// Calculate rate
 				long eTime = System.currentTimeMillis() - sTime;
 				double bpms = (double) size / (double) eTime;
-				L.trace("Origin Pull Complete [bytes={}, time(ms)={}, rate(KB/sec)={}]",
+				L.trace("Origin Pull Complete [bytes={}, time={} ms, rate={} KB/sec]",
 						size, eTime, (float) (bpms * 1000));
 			} catch (Exception e) {
 				e.printStackTrace();

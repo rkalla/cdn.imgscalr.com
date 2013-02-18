@@ -55,15 +55,11 @@ public class CDNServlet extends HttpServlet {
 						+ request.getMethod()
 						+ "' is not supported by this service.");
 
-			L.debug("HTTP GET Start [serverName={}, pathInfo={}, queryString='{}']",
-					request.getServerName(), request.getPathInfo(),
-					request.getQueryString());
-
 			// Continue processing the request.
 			processRequest(request);
 		} catch (CDNResponse ex) {
 			try {
-				L.debug("Response Complete [time(ms)={}, response={}]",
+				L.debug("Response Complete [time={} ms, response={}]",
 						(System.currentTimeMillis() - sTime), ex);
 				sTime = System.currentTimeMillis();
 
@@ -97,7 +93,7 @@ public class CDNServlet extends HttpServlet {
 					// Calculate rate
 					long eTime = System.currentTimeMillis() - sTime;
 					double bpms = (double) size / (double) eTime;
-					L.trace("Client Send Complete [bytes={}, time(ms)={}, rate(KB/sec)={}]",
+					L.trace("Client Send Complete [bytes={}, time={} ms, rate={} KB/sec]",
 							size, eTime, (float) (bpms * 1000));
 					break;
 
@@ -119,8 +115,6 @@ public class CDNServlet extends HttpServlet {
 		} catch (Exception e) {
 			// no-op, likely client aborted connection.
 		}
-
-		L.debug("HTTP GET End");
 	}
 
 	private static void processRequest(HttpServletRequest servletRequest)
